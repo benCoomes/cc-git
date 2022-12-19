@@ -1,8 +1,11 @@
 package main
 
 import (
+	"compress/zlib"
 	"fmt"
+	"io"
 	"os"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -48,22 +51,31 @@ func CatFile(args []string) {
 	sha := args[1]
 
 	if utf8.RuneCountInString(sha) != 40 {
-		fmt.Fprintf(os.Stderr, "SHA is not valid: '%s'", sha)
+		// todo: git allows sha prefixes, as long as they are unique
+		fmt.Fprintf(os.Stderr, "SHA is not valid: '%s'\n", sha)
+		os.Exit(1)
 	}
 
-	// demo zlib use
-	// var b bytes.Buffer
-	// w := zlib.NewWriter(&b)
-	// w.Write([]byte("hello, world\n"))
-	// w.Close()
-	// r, _ := zlib.NewReader(&b)
-	// io.Copy(os.Stdout, r)
-	// r.Close()
-
+	// todo: check that .git/objects exists
 	path := fmt.Sprintf(".git/objects/%s/%s", sha[0:2], sha[2:])
-	// todo:
-	// * read file at path, throw if DNE
-	// * unzip read bytes using zlib
-	// * parse content - should be "blob <byte_size>\0<content>"
-	// * print out content
+	file, err := os.Open(path)
+	check(err)
+
+	// read and unzip file
+	r, err := zlib.NewReader(file)
+	check(err)
+	buf := new(strings.Builder)
+	io.Copy(buf, r)
+	r.Close()
+
+	// parse content -  "<type> <byte_size>\000<content>"
+	parts := strings.Split(buf.String(), "\000")
+
+	fmt.Print(parts[1])
+}
+
+func check(e error) {
+	if e != nil {
+		panic(e)
+	}
 }
