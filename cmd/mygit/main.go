@@ -2,6 +2,7 @@ package main
 
 import (
 	"compress/zlib"
+	"crypto/sha1"
 	"fmt"
 	"io"
 	"os"
@@ -21,6 +22,8 @@ func main() {
 		Init()
 	case "cat-file":
 		CatFile(os.Args[2:])
+	case "hash-object":
+		HashObj(os.Args[2:])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command %s\n", command)
 		os.Exit(1)
@@ -72,6 +75,37 @@ func CatFile(args []string) {
 	parts := strings.Split(buf.String(), "\000")
 
 	fmt.Print(parts[1])
+}
+
+func HashObj(args []string) {
+	if len(args) != 2 && args[0] != "-w" {
+		fmt.Fprint(os.Stderr, "usage: hash-object -w <file_path>\n")
+		os.Exit(1)
+	}
+
+	path := args[1]
+
+	contents, err := os.ReadFile(path)
+	check(err)
+
+	gitobj := []byte(fmt.Sprintf("blob %d\000%s", len(contents), contents))
+
+	sha := sha1.Sum(gitobj)
+
+	dirPath := fmt.Sprintf(".git/objects/%x", sha[0:1])
+	err = os.MkdirAll(dirPath, 0755)
+	check(err)
+
+	outPath := fmt.Sprintf("%s/%x", dirPath, sha[1:])
+	file, err := os.Create(outPath)
+	check(err)
+	defer file.Close()
+	zlibWriter := zlib.NewWriter(file)
+	zlibWriter.Write(gitobj)
+	zlibWriter.Close()
+
+	// print sha
+	fmt.Printf("%x\n", sha)
 }
 
 func check(e error) {
