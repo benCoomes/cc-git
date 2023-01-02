@@ -73,8 +73,9 @@ func CatFile(args []string) {
 
 	// parse content -  "<type> <byte_size>\000<content>"
 	parts := strings.Split(buf.String(), "\000")
-
-	fmt.Print(parts[1])
+	for _, part := range parts[1:] {
+		fmt.Print(part)
+	}
 }
 
 func HashObj(args []string) {
