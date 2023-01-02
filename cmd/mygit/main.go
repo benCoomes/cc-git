@@ -3,6 +3,7 @@ package main
 import (
 	"compress/zlib"
 	"crypto/sha1"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -54,36 +55,20 @@ func ListTree(args []string) {
 	}
 
 	sha := args[1]
-
-	if utf8.RuneCountInString(sha) != 40 {
-		fmt.Fprintf(os.Stderr, "SHA is not valid: '%s'\n'", sha)
-		os.Exit(1)
-	}
-
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[0:2], sha[2:])
-	file, err := os.Open(path)
+	gobj, err := readGitObject(sha)
 	check(err)
-
-	r, err := zlib.NewReader((file))
-	check(err)
-	buf := new(strings.Builder)
-	io.Copy(buf, r)
-	r.Close()
-
-	// Start tree-specific work here
 
 	// internal structure from https://stackoverflow.com/questions/14790681/what-is-the-internal-format-of-a-git-tree-object
-	// tree [content size]\0[Entries having references to other trees and blobs]
-	parts := strings.Split(buf.String(), "\000")
+	// tree [content size]\0[entries]
+	// each entry is:
+	// [mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
+	// Note that entries are not seperated by anything. Ex: [mode] [name]\0[SHA][mode] [name]\0[SHA]
+	// So, splitting entries on \0 splits across entries always puts name at end of substrings, with no name in last substring
+
+	// todo: objects may contain nil bytes, so use length to read rather than splitting
+	parts := strings.Split(gobj, "\000")
 	entries := parts[1:]
 	for i := 0; i < len(entries)-1; i += 1 {
-		// [mode] [file/folder name]\0[SHA-1 of referencing blob or tree]
-		// Example splitting on \0 with three entries:
-		// [mode] [name]
-		// [SHA-1][mode] [name]
-		// [SHA-1][mode] [name]
-		// [SHA-1][mode] [name]
-		// [SHA-1]
 		entry_parts := strings.SplitN(entries[i], " ", 2)
 		obj_name := entry_parts[1]
 		fmt.Println(obj_name)
@@ -97,27 +82,12 @@ func CatFile(args []string) {
 	}
 
 	sha := args[1]
-
-	if utf8.RuneCountInString(sha) != 40 {
-		// todo: git allows sha prefixes, as long as they are unique
-		fmt.Fprintf(os.Stderr, "SHA is not valid: '%s'\n", sha)
-		os.Exit(1)
-	}
-
-	// todo: check that .git/objects exists
-	path := fmt.Sprintf(".git/objects/%s/%s", sha[0:2], sha[2:])
-	file, err := os.Open(path)
+	gobj, err := readGitObject(sha)
 	check(err)
-
-	// read and unzip file
-	r, err := zlib.NewReader(file)
-	check(err)
-	buf := new(strings.Builder)
-	io.Copy(buf, r)
-	r.Close()
 
 	// parse content -  "<type> <byte_size>\000<content>"
-	parts := strings.Split(buf.String(), "\000")
+	// todo: objects may contain nil bytes, so use length to read rather than splitting
+	parts := strings.Split(gobj, "\000")
 	for _, part := range parts[1:] {
 		fmt.Print(part)
 	}
@@ -152,6 +122,32 @@ func HashObj(args []string) {
 
 	// print sha
 	fmt.Printf("%x\n", sha)
+}
+
+func readGitObject(sha string) (string, error) {
+	if utf8.RuneCountInString(sha) != 40 {
+		// todo: git allows sha prefixes, as long as they are unique
+		msg := fmt.Sprintf("SHA is not valid: '%s'\n", sha)
+		return "", errors.New(msg)
+	}
+
+	// todo: check that .git/objects exists
+	path := fmt.Sprintf(".git/objects/%s/%s", sha[0:2], sha[2:])
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+
+	r, err := zlib.NewReader(file)
+	if err != nil {
+		return "", err
+	}
+
+	buf := new(strings.Builder)
+	io.Copy(buf, r)
+	r.Close()
+
+	return buf.String(), nil
 }
 
 func check(e error) {
